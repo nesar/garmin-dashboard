@@ -36,15 +36,29 @@ python build_site.py           # builds docs/
 
 ## Using your real data
 
-1. **API pull** (easiest):
-   ```bash
-   export GARMIN_EMAIL="you@example.com"
-   export GARMIN_PASSWORD="..."     # or a local .env you never commit
-   python ingest/connect_pull.py --days 180
+1. **API pull** — put your credentials in a local `.env` (git-ignored):
+   ```env
+   GARMIN_EMAIL=you@example.com
+   GARMIN_PASSWORD=...
    ```
-2. **FIT files** (per-second resolution): export activities from Garmin Connect,
-   drop the `.fit` files into `data/fit/`, then `python ingest/fit_parse.py`.
-3. Rebuild: `python build_site.py`.
+   Then:
+   ```bash
+   python ingest/connect_pull.py --days 180 --fit --fit-limit 60
+   ```
+   `--fit` auto-downloads original `.fit` files for the most recent N activities
+   into `data/fit/`. No manual export needed. MFA is handled interactively on
+   first login; the session token is cached in `~/.garminconnect` so subsequent
+   runs are silent.
+2. **Parse FIT** (for GPS heatmap + per-second HR/pace charts):
+   ```bash
+   python ingest/fit_parse.py
+   ```
+3. **Rebuild** the site: `python build_site.py`.
+
+### Automate it
+
+`scripts/nightly_refresh.sh` + a launchd plist run the full pipeline daily and
+push updated `docs/` to GitHub Pages. See [`scripts/README.md`](scripts/README.md).
 
 > Credentials are read from env vars and never written to disk or committed
 > (`.env` and `store/` are git-ignored). Don't paste your password into any file
@@ -76,11 +90,20 @@ weekly Actions workflow rebuild it.
 
 ## The analyses, briefly
 
+- **Recovery composite** — daily 0-100 readiness score blending HRV, resting HR
+  and sleep score against their own 60-day baselines.
 - **HRV readiness** — nightly HRV against a rolling 60-day baseline ±1σ band.
+- **Fitness / fatigue / form (CTL/ATL/TSB)** — Banister EWMA of daily load;
+  positive TSB = fresh, negative = accumulating fatigue.
 - **ACWR** — acute (7d) vs chronic (28d) training load; the 0.8–1.3 band is the
   commonly cited low-injury-risk zone.
+- **Weekly volume** — minutes + km + sessions by ISO week.
+- **HR zone minutes** — cumulative time by zone across all activities.
+- **Sleep architecture + consistency** — nightly stacked stages plus a 30-day
+  mean-and-spread band that flags irregular schedules.
+- **Body battery** — daily high/low envelope.
 - **Aerobic decoupling** — HR-per-pace in the first vs second half of each run; a
-  fatigue/heat/fitness signal.
+  fatigue/heat/fitness signal (needs FIT files).
 - **Run clustering** — k-means on pace/HR/distance auto-labels easy/steady/fast.
 - **Correlation matrix** — how sleep, HRV, stress, steps, resting HR move together.
 

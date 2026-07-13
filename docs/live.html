@@ -54,6 +54,8 @@ canvas{width:100%;height:180px;margin-top:20px;background:var(--panel);
   broadcast — no app, no server. On the watch, turn on <b>Broadcast Heart Rate</b>,
   then hit connect.</p>
 
+  <div class="warn" id="compat" style="margin-top:8px"></div>
+
   <button id="connect">▸ connect watch</button>
   <div class="status" id="status"></div>
 
@@ -77,8 +79,6 @@ canvas{width:100%;height:180px;margin-top:20px;background:var(--panel);
   </div>
 
   <canvas id="chart" width="1560" height="360"></canvas>
-
-  <div class="warn" id="compat"></div>
 </div>
 
 <script>
@@ -88,11 +88,22 @@ let data = [], t0 = null, minHr = Infinity, maxHr = 0, sum = 0, n = 0;
 const MAXHR = 190; // rough — used only for zone shading
 
 // Web Bluetooth availability
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 if (!navigator.bluetooth) {
-  $("compat").textContent =
-    "This browser doesn't support Web Bluetooth. Use Chrome, Edge, or Opera on "
-    + "desktop or Android (Safari/iOS won't work). The page must be served over HTTPS "
-    + "— GitHub Pages already is.";
+  if (isIOS) {
+    $("compat").innerHTML =
+      "<b>Won't work on iOS.</b> Apple doesn't ship Web Bluetooth in Safari, "
+      + "and every iOS browser (Chrome, Firefox, Edge) is forced to use Safari's "
+      + "engine — so none of them can talk to the watch. Open this page on a "
+      + "Mac / PC / Android device in Chrome or Edge instead. For iPhone, use a "
+      + "native HR-monitor app.";
+  } else {
+    $("compat").textContent =
+      "This browser doesn't support Web Bluetooth. Use Chrome, Edge, or Opera "
+      + "on desktop or Android. The page must be served over HTTPS — GitHub "
+      + "Pages already is.";
+  }
   $("connect").disabled = true;
 } else {
   $("compat").textContent =

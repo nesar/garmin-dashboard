@@ -13,7 +13,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import io
 import os
+import zipfile
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -25,6 +27,8 @@ load_dotenv(REPO_ROOT / ".env")
 
 STORE = REPO_ROOT / "store"
 STORE.mkdir(exist_ok=True)
+FIT_DIR = REPO_ROOT / "data" / "fit"
+FIT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 TOKENSTORE = str(
@@ -116,10 +120,56 @@ def pull_activities(g, limit: int = 200) -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
+def download_fit_files(g, acts: pl.DataFrame, limit: int | None = None) -> int:
+    """
+    Download original .fit files for activities we haven't already saved.
+
+    Garmin returns FIT as a ZIP; we unpack the inner .fit into data/fit/ using
+    the activity id as the filename. Idempotent: existing files are skipped.
+    Returns the number of newly downloaded files.
+    """
+    from garminconnect import Garmin
+
+    existing = {p.stem for p in FIT_DIR.glob("*.fit")}
+    ids = acts["activity_id"].drop_nulls().to_list()
+    if limit is not None:
+        ids = ids[:limit]
+    downloaded = 0
+    for aid in ids:
+        stem = str(aid)
+        if stem in existing:
+            continue
+        try:
+            blob = g.download_activity(
+                aid, dl_fmt=Garmin.ActivityDownloadFormat.ORIGINAL,
+            )
+        except Exception as e:
+            print(f"  skip {aid}: {e}")
+            continue
+        try:
+            with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+                fit_members = [n for n in zf.namelist() if n.lower().endswith(".fit")]
+                if not fit_members:
+                    continue
+                # Garmin zip usually contains a single .fit named "<aid>.fit"
+                data = zf.read(fit_members[0])
+                (FIT_DIR / f"{stem}.fit").write_bytes(data)
+                downloaded += 1
+        except zipfile.BadZipFile:
+            # Some activities are returned as raw fit bytes rather than zipped
+            (FIT_DIR / f"{stem}.fit").write_bytes(blob)
+            downloaded += 1
+    return downloaded
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=120)
     ap.add_argument("--activities", type=int, default=200)
+    ap.add_argument("--fit", action="store_true",
+                    help="also download original .fit files into data/fit/")
+    ap.add_argument("--fit-limit", type=int, default=None,
+                    help="max activities to fetch FIT for (default: all)")
     args = ap.parse_args()
 
     g = _client()
@@ -129,6 +179,10 @@ def main():
     daily.write_parquet(STORE / "daily.parquet")
     acts.write_parquet(STORE / "activities.parquet")
     print(f"Wrote {len(daily)} daily rows, {len(acts)} activities to {STORE}")
+
+    if args.fit:
+        n = download_fit_files(g, acts, limit=args.fit_limit)
+        print(f"Downloaded {n} new .fit files to {FIT_DIR}")
 
 
 if __name__ == "__main__":

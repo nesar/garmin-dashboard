@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nesar.garmin-dashboard.refresh</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>/Users/nesar/Projects/Private/garmin-dashboard/scripts/nightly_refresh.sh</string>
+  </array>
+
+  <!--
+    Runs every day at 06:15 local time. If the Mac is asleep, launchd waits
+    until wake and fires once — perfect for a laptop.
+  -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>6</integer>
+    <key>Minute</key>
+    <integer>15</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/nesar/Projects/Private/garmin-dashboard/logs/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/nesar/Projects/Private/garmin-dashboard/logs/launchd.err.log</string>
+
+  <!-- Don't restart on failure — just wait for tomorrow. -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

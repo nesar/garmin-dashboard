@@ -134,6 +134,112 @@ def drift_bars(d: pl.DataFrame) -> go.Figure:
     return f
 
 
+def fitness_fatigue(d: pl.DataFrame) -> go.Figure:
+    """CTL / ATL / TSB curves. TSB on a secondary axis, zeros highlighted."""
+    f = _fig("Fitness vs fatigue — CTL, ATL, form (TSB)")
+    x = d["date"].to_list()
+    f.add_trace(go.Scatter(x=x, y=d["ctl"], line=dict(color=CYAN, width=2.5),
+                           name="CTL (fitness, 42d)"))
+    f.add_trace(go.Scatter(x=x, y=d["atl"], line=dict(color=AMBER, width=2),
+                           name="ATL (fatigue, 7d)"))
+    f.add_trace(go.Scatter(x=x, y=d["tsb"], line=dict(color=GREEN, width=1.5, dash="dot"),
+                           name="TSB (form)", yaxis="y2"))
+    f.add_hline(y=0, line_color=GRID, line_width=1, yref="y2")
+    f.update_layout(
+        yaxis=dict(title="load (a.u.)", gridcolor=GRID),
+        yaxis2=dict(title="TSB", overlaying="y", side="right",
+                    gridcolor="rgba(0,0,0,0)", color=GREEN, zeroline=False),
+    )
+    return f
+
+
+def weekly_bars(d: pl.DataFrame) -> go.Figure:
+    """Weekly minutes + kilometres bars; hover for sessions/avg-HR."""
+    f = _fig("Weekly volume — minutes & kilometres by ISO week")
+    x = d["week"].to_list()
+    f.add_trace(go.Bar(
+        x=x, y=d["minutes"], name="minutes", marker_color=CYAN,
+        customdata=list(zip(d["sessions"].to_list(), d["avg_hr"].to_list())),
+        hovertemplate="<b>%{x}</b><br>%{y:.0f} min · "
+                      "%{customdata[0]} sessions · avg HR %{customdata[1]:.0f}<extra></extra>",
+    ))
+    f.add_trace(go.Scatter(
+        x=x, y=d["km"], name="km", mode="lines+markers",
+        line=dict(color=GREEN, width=2), marker=dict(size=6), yaxis="y2",
+        hovertemplate="%{y:.1f} km<extra></extra>",
+    ))
+    f.update_layout(
+        yaxis=dict(title="minutes", gridcolor=GRID),
+        yaxis2=dict(title="km", overlaying="y", side="right",
+                    gridcolor="rgba(0,0,0,0)", color=GREEN),
+        bargap=0.25,
+    )
+    return f
+
+
+def sleep_consistency(d: pl.DataFrame) -> go.Figure:
+    """Rolling 30-day sleep mean band; wider = more inconsistent."""
+    f = _fig("Sleep consistency — 30-day mean & spread")
+    x = d["date"].to_list()
+    hi = (d["sleep_h_30d"] + d["sleep_h_sd_30d"])
+    lo = (d["sleep_h_30d"] - d["sleep_h_sd_30d"])
+    f.add_trace(go.Scatter(x=x, y=hi, line=dict(width=0), showlegend=False,
+                           hoverinfo="skip"))
+    f.add_trace(go.Scatter(x=x, y=lo, fill="tonexty", line=dict(width=0),
+                           fillcolor="rgba(167,139,250,0.15)",
+                           name="±1σ (30d)", hoverinfo="skip"))
+    f.add_trace(go.Scatter(x=x, y=d["sleep_h_30d"], line=dict(color=VIOLET, width=2),
+                           name="30-day mean"))
+    f.add_trace(go.Scatter(x=x, y=d["sleep_h"], mode="markers",
+                           marker=dict(size=4, color=MUTE), name="nightly"))
+    f.update_yaxes(title="hours")
+    return f
+
+
+def hr_zones(d: pl.DataFrame) -> go.Figure:
+    """Cumulative minutes per aerobic HR zone across all logged activities."""
+    f = _fig("Time in heart-rate zones — cumulative minutes")
+    palette = {"Z1": CYAN, "Z2": GREEN, "Z3": VIOLET, "Z4": AMBER, "Z5": RED}
+    colors = [palette[z] for z in d["zone"].to_list()]
+    f.add_trace(go.Bar(x=d["zone"], y=d["minutes"], marker_color=colors,
+                       hovertemplate="<b>%{x}</b><br>%{y:.0f} min<extra></extra>"))
+    f.update_xaxes(title="")
+    f.update_yaxes(title="minutes")
+    return f
+
+
+def recovery_gauge(d: pl.DataFrame) -> go.Figure:
+    """Daily composite readiness (HRV + RHR + sleep) as a line."""
+    f = _fig("Recovery composite — daily readiness 0-100")
+    x = d["date"].to_list()
+    y = d["recovery"].to_list()
+    f.add_hrect(y0=70, y1=100, line_width=0, fillcolor="rgba(74,222,128,0.08)")
+    f.add_hrect(y0=40, y1=70, line_width=0, fillcolor="rgba(245,165,36,0.06)")
+    f.add_hrect(y0=0, y1=40, line_width=0, fillcolor="rgba(248,113,113,0.06)")
+    f.add_trace(go.Scatter(x=x, y=y, mode="lines+markers",
+                           line=dict(color=GREEN, width=2),
+                           marker=dict(size=4, color=TEXT), name="recovery"))
+    f.update_yaxes(title="score", range=[0, 100])
+    return f
+
+
+def body_battery(d: pl.DataFrame) -> go.Figure:
+    """Daily body-battery high/low band."""
+    f = _fig("Body battery — daily high & low")
+    x = d["date"].to_list()
+    f.add_trace(go.Scatter(x=x, y=d["body_battery_high"], line=dict(width=0),
+                           showlegend=False, hoverinfo="skip"))
+    f.add_trace(go.Scatter(x=x, y=d["body_battery_low"], fill="tonexty",
+                           line=dict(width=0), fillcolor="rgba(56,189,248,0.14)",
+                           name="high–low band", hoverinfo="skip"))
+    f.add_trace(go.Scatter(x=x, y=d["body_battery_high"], line=dict(color=GREEN, width=1.5),
+                           name="daily high"))
+    f.add_trace(go.Scatter(x=x, y=d["body_battery_low"], line=dict(color=RED, width=1.5),
+                           name="daily low"))
+    f.update_yaxes(title="battery", range=[0, 100])
+    return f
+
+
 def hr_pace_trace(recs: pl.DataFrame, activity: str) -> go.Figure:
     r = recs.filter(pl.col("activity") == activity).sort("timestamp")
     f = _fig(f"Run telemetry — HR & speed over time")
