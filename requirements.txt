@@ -1,0 +1,11 @@
+garminconnect>=0.2.0
+fitdecode>=0.10.0
+garmin-fit-sdk>=21.0.0
+polars>=1.0.0
+pyarrow>=15.0.0
+duckdb>=1.0.0
+plotly>=5.20.0
+folium>=0.16.0
+scikit-learn>=1.4.0
+bleak>=0.22.0
+numpy>=1.26.0

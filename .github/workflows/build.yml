@@ -1,0 +1,57 @@
+name: build-dashboard
+
+# Rebuilds the static site and publishes docs/ to GitHub Pages.
+# By default runs on push and weekly. To pull YOUR real Garmin data in CI,
+# add GARMIN_EMAIL / GARMIN_PASSWORD as repo secrets and uncomment the pull step.
+# (If you'd rather keep credentials off GitHub entirely, run ingest locally and
+#  commit the refreshed docs/ — this workflow will just redeploy them.)
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+
+      # --- Data source: sample by default. ---
+      - name: Generate sample data
+        run: python ingest/make_sample.py
+
+      # --- To use REAL data in CI instead, comment the step above and use this:
+      # - name: Pull from Garmin Connect
+      #   env:
+      #     GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+      #     GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+      #   run: python ingest/connect_pull.py --days 180
+
+      - name: Build static site
+        run: python build_site.py
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

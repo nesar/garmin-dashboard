@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Live HR — Web Bluetooth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0E1116;--panel:#161B22;--grid:#232A34;--text:#C7D0DB;--mute:#7A8798;
+  --green:#4ADE80;--red:#F87171;--amber:#F5A524;--cyan:#38BDF8;}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1000px 500px at 50% -10%,rgba(248,113,113,.08),transparent),var(--ink);
+  color:var(--text);font-family:'Space Grotesk',system-ui,sans-serif;min-height:100vh}
+.wrap{max-width:820px;margin:0 auto;padding:40px 20px 80px}
+a.back{color:var(--mute);text-decoration:none;font-family:'IBM Plex Mono',monospace;font-size:13px}
+a.back:hover{color:var(--text)}
+.eyebrow{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.3em;
+  color:var(--red);text-transform:uppercase;margin:26px 0 8px}
+h1{font-size:clamp(28px,5vw,44px);margin:0 0 6px;letter-spacing:-.02em}
+.sub{color:var(--mute);max-width:60ch;line-height:1.55;font-size:15px}
+button{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;
+  border:none;border-radius:11px;padding:13px 22px;cursor:pointer;margin:22px 0}
+#connect{background:var(--green);color:var(--ink)}
+#connect:hover{background:#6ee79a}
+#connect:disabled{background:var(--grid);color:var(--mute);cursor:not-allowed}
+.readout{display:grid;grid-template-columns:auto 1fr;gap:28px;align-items:center;
+  background:linear-gradient(180deg,var(--panel),#12161C);border:1px solid var(--grid);
+  border-radius:16px;padding:28px;margin-top:10px}
+.bignum{font-family:'IBM Plex Mono',monospace;font-size:88px;font-weight:500;
+  line-height:.9;color:var(--text);min-width:3ch;text-align:right}
+.bignum .unit{font-size:22px;color:var(--mute);display:block;text-align:right}
+.heart{font-size:56px;color:var(--red);transition:transform .12s ease}
+.stats{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--mute);line-height:1.9}
+.stats b{color:var(--text);font-weight:500}
+canvas{width:100%;height:180px;margin-top:20px;background:var(--panel);
+  border:1px solid var(--grid);border-radius:14px}
+.status{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--amber);
+  min-height:20px;margin-top:6px}
+.warn{background:rgba(245,165,36,.1);border:1px solid rgba(245,165,36,.3);
+  border-radius:10px;padding:12px 16px;font-size:13px;color:var(--amber);
+  font-family:'IBM Plex Mono',monospace;line-height:1.5;margin-top:24px}
+.zones{display:flex;gap:6px;margin-top:14px;font-family:'IBM Plex Mono',monospace;font-size:11px}
+.zone{flex:1;text-align:center;padding:7px 0;border-radius:7px;opacity:.35;transition:opacity .2s}
+.zone.active{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="index.html">◂ back to dashboard</a>
+  <p class="eyebrow">♥ live · web bluetooth</p>
+  <h1>Live heart rate</h1>
+  <p class="sub">Connects straight from this page to your Venu 3's BLE heart-rate
+  broadcast — no app, no server. On the watch, turn on <b>Broadcast Heart Rate</b>,
+  then hit connect.</p>
+
+  <button id="connect">▸ connect watch</button>
+  <div class="status" id="status"></div>
+
+  <div class="readout">
+    <div class="heart" id="heart">♥</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:20px">
+      <div class="bignum"><span id="hr">—</span><span class="unit">bpm</span></div>
+      <div class="stats">
+        min <b id="min">—</b><br>max <b id="max">—</b><br>
+        avg <b id="avg">—</b><br>samples <b id="n">0</b>
+      </div>
+    </div>
+  </div>
+
+  <div class="zones" id="zones">
+    <div class="zone" style="background:#38BDF8" data-z="1">Z1</div>
+    <div class="zone" style="background:#4ADE80" data-z="2">Z2</div>
+    <div class="zone" style="background:#A78BFA" data-z="3">Z3</div>
+    <div class="zone" style="background:#F5A524" data-z="4">Z4</div>
+    <div class="zone" style="background:#F87171" data-z="5">Z5</div>
+  </div>
+
+  <canvas id="chart" width="1560" height="360"></canvas>
+
+  <div class="warn" id="compat"></div>
+</div>
+
+<script>
+const HR_SERVICE = 0x180D, HR_CHAR = 0x2A37;
+const $ = id => document.getElementById(id);
+let data = [], t0 = null, minHr = Infinity, maxHr = 0, sum = 0, n = 0;
+const MAXHR = 190; // rough — used only for zone shading
+
+// Web Bluetooth availability
+if (!navigator.bluetooth) {
+  $("compat").textContent =
+    "This browser doesn't support Web Bluetooth. Use Chrome, Edge, or Opera on "
+    + "desktop or Android (Safari/iOS won't work). The page must be served over HTTPS "
+    + "— GitHub Pages already is.";
+  $("connect").disabled = true;
+} else {
+  $("compat").textContent =
+    "Tip: Web Bluetooth needs Chrome/Edge/Opera. Enable 'Broadcast Heart Rate' on the "
+    + "watch first, and keep this tab focused while streaming.";
+}
+
+function parseHR(dv){
+  const flags = dv.getUint8(0);
+  return (flags & 0x01) ? dv.getUint16(1, true) : dv.getUint8(1);
+}
+
+function zoneFor(hr){
+  const p = hr / MAXHR;
+  if (p < 0.6) return 1; if (p < 0.7) return 2; if (p < 0.8) return 3;
+  if (p < 0.9) return 4; return 5;
+}
+
+function draw(){
+  const c = $("chart"), ctx = c.getContext("2d");
+  ctx.clearRect(0,0,c.width,c.height);
+  if (data.length < 2) return;
+  const w = c.width, h = c.height, pad = 30;
+  const lo = Math.max(40, minHr - 8), hi = maxHr + 8;
+  const N = Math.min(data.length, 300);
+  const slice = data.slice(-N);
+  ctx.strokeStyle = "#232A34"; ctx.lineWidth = 1;
+  for(let g=0; g<=4; g++){const y=pad+(h-2*pad)*g/4;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+  ctx.beginPath(); ctx.strokeStyle = "#F87171"; ctx.lineWidth = 2.5;
+  slice.forEach((hr,i)=>{
+    const x = i/(N-1)*w;
+    const y = pad + (h-2*pad)*(1-(hr-lo)/(hi-lo));
+    i? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+  });
+  ctx.stroke();
+}
+
+function onHR(hr){
+  const now = performance.now();
+  if (t0===null) t0 = now;
+  data.push(hr);
+  minHr = Math.min(minHr, hr); maxHr = Math.max(maxHr, hr);
+  sum += hr; n++;
+  $("hr").textContent = hr;
+  $("min").textContent = minHr; $("max").textContent = maxHr;
+  $("avg").textContent = Math.round(sum/n); $("n").textContent = n;
+  const z = zoneFor(hr);
+  document.querySelectorAll(".zone").forEach(e=>
+    e.classList.toggle("active", +e.dataset.z===z));
+  const hEl = $("heart");
+  hEl.style.transform = "scale(1.18)";
+  setTimeout(()=>hEl.style.transform="scale(1)", 120);
+  draw();
+}
+
+$("connect").addEventListener("click", async ()=>{
+  try{
+    $("status").textContent = "requesting device…";
+    const device = await navigator.bluetooth.requestDevice({
+      filters:[{services:[HR_SERVICE]}]
+    });
+    $("status").textContent = "connecting…";
+    device.addEventListener("gattserverdisconnected", ()=>{
+      $("status").textContent = "disconnected.";
+    });
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(HR_SERVICE);
+    const ch = await svc.getCharacteristic(HR_CHAR);
+    await ch.startNotifications();
+    ch.addEventListener("characteristicvaluechanged", e => onHR(parseHR(e.target.value)));
+    $("status").textContent = "● streaming from " + (device.name || "device");
+    $("status").style.color = "#4ADE80";
+    $("connect").disabled = true; $("connect").textContent = "connected";
+  }catch(err){
+    $("status").textContent = "error: " + err.message;
+    $("status").style.color = "#F87171";
+  }
+});
+</script>
+</body>
+</html>
