@@ -29,16 +29,25 @@ def fig_html(fig, div_id: str, height=360) -> str:
                                               "responsive": True})
 
 
+def _latest(daily, col):
+    """Most recent non-null value for a daily column, or None."""
+    s = daily.filter(daily[col].is_not_null()).sort("date")
+    return s[col][-1] if len(s) else None
+
+
+def _fmt(val, spec):
+    return format(val, spec) if val is not None else "—"
+
+
 def kpi(daily, acts, acwr_df):
-    last = daily.tail(1)
     n_runs = len(acts)
-    total_km = acts["distance_m"].sum() / 1000
-    latest_acwr = acwr_df.tail(1)["acwr"][0]
+    total_km = (acts["distance_m"].sum() or 0) / 1000
+    latest_acwr = _latest(acwr_df, "acwr") if "acwr" in acwr_df.columns else None
     return [
-        ("RESTING HR", f'{last["resting_hr"][0]:.0f}', "bpm"),
-        ("HRV LAST NIGHT", f'{last["hrv_last_night_avg"][0]:.0f}', "ms"),
-        ("SLEEP SCORE", f'{last["sleep_score"][0]:.0f}', "/100"),
-        ("ACWR", f"{latest_acwr:.2f}", "ratio"),
+        ("RESTING HR", _fmt(_latest(daily, "resting_hr"), ".0f"), "bpm"),
+        ("HRV LAST NIGHT", _fmt(_latest(daily, "hrv_last_night_avg"), ".0f"), "ms"),
+        ("SLEEP SCORE", _fmt(_latest(daily, "sleep_score"), ".0f"), "/100"),
+        ("ACWR", _fmt(latest_acwr, ".2f"), "ratio"),
         ("RUNS LOGGED", f"{n_runs}", "activities"),
         ("TOTAL DISTANCE", f"{total_km:.0f}", "km"),
     ]
